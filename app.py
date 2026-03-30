@@ -1,25 +1,23 @@
 """
-Rice Crop Stage Detector — Gradio App
-======================================
-Model  : MobileNetV2 (transfer learning) trained on 4 rice crop stages
-Input  : 224x224 RGB image
+Rice Crop Stage Detector — Gradio App (ONNX Runtime)
+=====================================================
+Model  : MobileNetV2 (transfer learning) converted to ONNX
+Input  : 224x224 RGB image, rescaled by 1/255
 Classes: flowering, germination, noise, tillering
 """
 
 import gradio as gr
-import tensorflow as tf
+import onnxruntime as ort
 import numpy as np
 from PIL import Image
 
 # ─── CONFIG ──────────────────────────────────────────────────
-MODEL_PATH = "rice_stage_model_v2_with_noise.keras"
+MODEL_PATH = "rice_stage_model.onnx"
 IMG_SIZE = 224
 CONFIDENCE_THRESHOLD = 0.70
 
-# Class labels (must match the order from training: alphabetical by folder name)
 CLASS_LABELS = ["flowering", "germination", "noise", "tillering"]
 
-# Telugu translations for each stage
 TELUGU_LABELS = {
     "flowering":   "పూత దశ (Flowering)",
     "germination": "మొలకెత్తడం (Germination)",
@@ -27,7 +25,6 @@ TELUGU_LABELS = {
     "noise":       "గుర్తించలేని చిత్రం (Unrecognized)"
 }
 
-# Detailed stage descriptions
 STAGE_INFO = {
     "flowering": {
         "description": "The rice plant is in the flowering/heading stage. Panicles have emerged and pollination is occurring.",
@@ -56,19 +53,21 @@ STAGE_INFO = {
 }
 
 # ─── LOAD MODEL ──────────────────────────────────────────────
-print("Loading rice stage classification model...")
-model = tf.keras.models.load_model(MODEL_PATH)
-print(f"Model loaded successfully. Input shape: {model.input_shape}")
+print("Loading ONNX rice stage classification model...")
+session = ort.InferenceSession(MODEL_PATH)
+input_name = session.get_inputs()[0].name
+output_name = session.get_outputs()[0].name
+print(f"Model loaded. Input: {input_name}, Output: {output_name}")
 
 
 # ─── PREDICTION FUNCTION ────────────────────────────────────
 def classify_crop_stage(input_image):
     """
-    Takes a PIL Image, preprocesses it, runs inference,
+    Takes a PIL Image, preprocesses it, runs ONNX inference,
     and returns structured results.
     """
     if input_image is None:
-        return "No image provided", "", "", "", {}
+        return "No image provided", {}
 
     # Preprocess
     img = input_image.resize((IMG_SIZE, IMG_SIZE))
@@ -76,7 +75,7 @@ def classify_crop_stage(input_image):
     img_array = np.expand_dims(img_array, axis=0)
 
     # Predict
-    predictions = model.predict(img_array, verbose=0)
+    predictions = session.run([output_name], {input_name: img_array})[0]
     class_idx = int(np.argmax(predictions[0]))
     confidence = float(np.max(predictions[0]))
 
@@ -135,7 +134,11 @@ with gr.Blocks(
                 sources=["upload", "webcam"],
                 height=350
             )
-            submit_btn = gr.Button("🔍 Detect Stage / దశ గుర్తించండి", variant="primary", size="lg")
+            submit_btn = gr.Button(
+                "Detect Stage / దశ గుర్తించండి",
+                variant="primary",
+                size="lg"
+            )
 
         with gr.Column(scale=1):
             result_text = gr.Markdown(label="Detection Result")
@@ -153,8 +156,8 @@ with gr.Blocks(
     gr.Markdown(
         """
         ---
-        **Model:** MobileNetV2 (Transfer Learning) · **Classes:** Flowering, Germination, Tillering, Noise
-        · **Threshold:** 70% confidence · **Input:** 224×224 RGB
+        **Model:** MobileNetV2 (ONNX) · **Classes:** Flowering, Germination, Tillering, Noise
+        · **Threshold:** 70% confidence · **Input:** 224x224 RGB
         """
     )
 
